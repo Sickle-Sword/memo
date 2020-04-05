@@ -1,5 +1,5 @@
 library(tidyverse)
-
+library(magrittr)
 
 # クロス表成型用の関数 --------------------------------------------------------------
 # 調査実習に準拠した情報を盛り込んだクロス表を出力します
@@ -37,8 +37,14 @@ my_cross <- function(x){
                   p.value = c(p.value, rep(NA_real_, nrow(.) - 1)))
 }
 
-
-
+# 使用例
+# daiamondsのcutとclarityのクロス表を作成
+diamonds %>% 
+  janitor::tabyl(cut, clarity) %>% 
+  # my_crossを適用
+  my_cross() %>% 
+  # csvで出力
+  write_excel_csv(path = 'output/diamonds_cross.csv')
 
 
 # 日本語と正規表現 ----------------------------------------------------------------
@@ -57,3 +63,15 @@ grepl('新型コロナウイルス', y)
 # やはり羽鳥教の信者としてはstringrで処理したいという欲はある
 
 
+
+# pipeのちょい技 ---------------------------------------------------------------
+
+# グラフとデータを同時に出力したいとき
+iris %>% 
+  as_tibble() %>% 
+  {
+    print(.)
+    ggplot(data = .)+
+      geom_point(aes(x = Sepal.Length, y = Sepal.Width, color = Species))
+  }
+# {}を使って，処理を分岐できる
