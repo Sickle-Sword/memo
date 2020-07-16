@@ -155,6 +155,16 @@ print_all <-
     print(x, n = Inf)
   }
 
+# star --------------------------------------------------------------------
+
+star <- function(p.value){
+  case_when(p.value < 0.001 ~ '***',
+            p.value < 0.01 ~ '**',
+            p.value < 0.05 ~ '*',
+            p.value < 0.1 ~ '+',
+            TRUE ~ '')
+}
+
 # 型変換_type_convert関数 ---------------------------------------------------------------------
 # 便利なんだけど使えなさそう
 x <- tibble(A = c("1", "2", "3", "4"),
@@ -282,7 +292,7 @@ result %>%
   transmute(tidied = map(model, broom::tidy)) %>%
   unnest(tidied) %>% 
   mutate_if(.predicate = is.numeric, .funs = ~{round(., digits = 3)}) %>% 
-  select(-std.error) %>% 
+  dplyr::select(-std.error) %>% 
   pivot_wider(names_from = class, values_from = estimate)
   print(n = Inf)
 
@@ -300,6 +310,7 @@ result %>%
 
 # RMeCab ------------------------------------------------------------------
 
+  
 library(RMeCab)
 
 a <- RMeCabC("すもももももももものうち")
@@ -308,7 +319,6 @@ a <- RMeCabC("すもももももももものうち")
 flatten_chr(a) %>% 
   enframe()
              
-
 # rtweet ------------------------------------------------------------------
 
 library(rtweet)
