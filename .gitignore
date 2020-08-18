@@ -2,6 +2,10 @@
 .Rhistory
 .RData
 .Ruserdata
+.yml
+.css
+.Rmd
+.R
 memo.Rproj
 index_cache/
 index_files/
