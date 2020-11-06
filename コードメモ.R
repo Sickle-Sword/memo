@@ -1,54 +1,102 @@
 
 library(tidyverse)
 library(magrittr)
+library(janitor)
+
 
 # クロス表成型用の関数 --------------------------------------------------------------
 # 調査実習に準拠した情報を盛り込んだクロス表を出力します
-# listではなくdata.frameで出力することで，excelへの出力を簡単にします
 
-my_cross <- function(x){
-  crosstab <- 
-    x %>% 
-    janitor::adorn_totals(where = c('row', 'col')) %>%
-    janitor::adorn_percentages(denominator = 'row') %>% 
-    dplyr::as_tibble() %>% 
-    dplyr::mutate_at(.vars = vars(-1), .funs = ~{round(.*100, 1)})
+my_cross <- function(.data, .x, .y){
+  .x <- rlang::enquo(.x)
+  .y <- rlang::enquo(.y)
+  
+  .contents_.y <- dplyr::pull(.data, !!.y) 
+  if(any(class(.contents_.y) == 'factor')){
+    .contents_.y <- 
+      forcats::fct_unique(.contents_.y) %>% 
+      as.character()
+  } else {
+    .contents_.y <- 
+      factor(.contents_.y) %>% 
+      forcats::fct_unique() %>% 
+      as.character()
+  }
+  
+  .tabyl <- janitor::tabyl(.data, !!.x, !!.y) 
   
   N <- 
-    x %>% 
+    .tabyl %>% 
     janitor::adorn_totals(where = c('row', 'col')) %>%
     dplyr::as_tibble() %>% 
-    dplyr::select(N = Total)
+    dplyr::pull(Total) %>% 
+    # 合計のところの括弧
+    stringr::str_c('（', ., '）')
   
-  cramer <-
-    x %>% 
+  .p.value <-
+    janitor::chisq.test(.tabyl) %>% 
+    .$p.value
+  
+  .cramer <-
+    .tabyl %>% 
     janitor::untabyl() %>%
     dplyr::select(-1) %>%
     as.matrix() %>%
     vcd::assocstats() %>% 
-    .$cramer
+    .$cramer 
   
-  p.value <-
-    x %>% 
-    janitor::chisq.test() %>% 
-    .$p.value
+  .crosstab_raw <- 
+    .tabyl %>% 
+    janitor::adorn_totals(where = c('row', 'col')) %>%
+    janitor::adorn_percentages(denominator = 'row') %>% 
+    dplyr::as_tibble() %>% 
+    dplyr::mutate(dplyr::across(.cols = where(is.numeric),
+                                .fns = ~{round(.*100, digits = 1)}
+                                )) %>% 
+    # パーセント記号
+    dplyr::mutate(across(.cols = 1,
+                         .fns = ~{stringr::str_c(., '（％）')}
+                         )) %>% 
+    dplyr::mutate(N = N)
   
-  dplyr::bind_cols(crosstab, N) %>% 
-    dplyr::mutate(cramer = c(cramer, rep(NA_real_, nrow(.) - 1)),
-                  p.value = c(p.value, rep(NA_real_, nrow(.) - 1)))
+  # gtによる整形
+  .crosstab_gt <-
+    gt::gt(.crosstab_raw) %>% 
+    gt::tab_spanner(label = rlang::as_label(.y),
+                    columns = .contents_.y) %>% 
+    gt::tab_source_note(stringr::str_interp("Cramer's V = $[.3f]{.cramer}   p = $[.4f]{.p.value}"))
+    
+  return(.crosstab_gt)
 }
+
 
 # 使用例
 # daiamondsのcutとclarityのクロス表を作成
 diamonds %>% 
-  janitor::tabyl(cut, clarity) %>% 
-  # my_crossを適用
-  my_cross() %>% print
-  # csvで出力
-  write_excel_csv(path = 'output/diamonds_cross.csv')
+  my_cross(cut, clarity)
+
+
+# クロス表のグラフ表示 --------------------------------------------------------------------------------
+
+my_cross_plot <- function(.data, .x, .y){
+  .x <- rlang::enquo(.x)
+  .y <- rlang::enquo(.y)
+  ggplot2::ggplot(.data, 
+                  ggplot2::aes(forcats::fct_rev(factor(!!.x)),
+                               fill = forcats::fct_rev(factor(!!.y)))
+                  )+
+    ggplot2::geom_bar(position = 'fill')+
+    ggplot2::scale_y_continuous(labels = scales::percent)+
+    ggplot2::coord_flip()+
+    ggplot2::labs(x = rlang::as_label(.x), y = 'percentage', fill = rlang::as_label(.y))
+}
 
   
+# 例
+my_cross_plot(diamonds, cut, clarity)  
+  
 
+  
 # クロス表の調整残差の算出 ------------------------------------------------------------
 
 # chisq.testのstdresがそれ 
@@ -60,25 +108,23 @@ diamonds %>%
 # カテゴリカル変数の記述統計 -----------------------------------------------------------
 # 連続変数はpsych::describeとかでいいけどカテゴリカル変数は良いのがなかったので
 
-describe_d <-
-    function(data){
-      purrr::map2_dfr(.x = data, .y = names(data),
-               .f =  ~{
-                 tab <- janitor::tabyl(.x)
-                 variable_name <- .y
-                 N <- tab[,2] %>% sum()
-                 dplyr::tibble(
-                   variables = c(variable_name,
-                                 stringr::str_c('  ', tab[,1])),
-                   N = c(N, tab[,2]),
-                   percent = c(1, tab[,3]))
-                 })
-      }
+describe_d <- function(.data, ...){
+  .data <- select(.data, ...)
+  purrr::map2_dfr(.x = .data, .y = names(.data),
+                  .f =  ~{
+                    tab <- janitor::tabyl(.x)
+                    variable_name <- .y
+                    N <- tab[,2] %>% sum()
+                    dplyr::tibble(
+                      variables = c(variable_name, stringr::str_c('  ', tab[,1])),
+                      N = c(N, tab[,2]),
+                      percent = c(1, tab[,3]))
+                  })
+  }
   
 # 使用例
-diamonds %>% 
-  select(cut, clarity) %>% # 記述統計を算出したい変数を選択
-  describe_d()
+diamonds  %>% 
+  describe_d(cut, clarity) # 記述統計を算出したい変数を選択
 
   
 # 日本語と正規表現 ----------------------------------------------------------------
@@ -157,13 +203,17 @@ print_all <-
 
 # star --------------------------------------------------------------------
 
-star <- function(p.value){
-  case_when(p.value < 0.001 ~ '***',
-            p.value < 0.01 ~ '**',
-            p.value < 0.05 ~ '*',
-            p.value < 0.1 ~ '+',
-            TRUE ~ '')
-}
+p_star <- function(.data, .var){
+  .var <- rlang::enquo(.var)
+  .var_name <- rlang::as_label(.var)
+  dplyr::mutate(.data,
+                !!.var_name := dplyr::case_when(!!.var < 0.001 ~ '***',
+                                                !!.var < 0.01 ~ '**',
+                                                !!.var < 0.05 ~ '*',
+                                                !!.var < 0.1 ~ '+',
+                                                TRUE ~ '')
+  )
+  }
 
 # 型変換_type_convert関数 ---------------------------------------------------------------------
 # 便利なんだけど使えなさそう
@@ -322,9 +372,9 @@ flatten_chr(a) %>%
 # rtweet ------------------------------------------------------------------
 
 library(rtweet)
-library()
-x <- get_timeline(user = 'Peacefulbassist', n = 2000)
 
+# ユーザーのtweet取得
+x <- get_timeline(user = 'Peacefulbassist', n = 2000)
 
 # RMeCabで形態素解析をしてみる
 x %>% 
@@ -336,4 +386,3 @@ x %>%
   filter(str_detect(value, '(\\p{Han}|\\p{Hiragana}|\\p{Katakana})')) %>% 
   count(value, sort = T) %>% print(n = 100)
   
-
